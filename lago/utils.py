@@ -39,6 +39,7 @@ import argparse
 import configparser
 from . import constants
 from .log_utils import (LogTask, setup_prefix_logging)
+import hashlib
 
 LOGGER = logging.getLogger(__name__)
 
@@ -561,3 +562,146 @@ def _add_subparser_to_cp(cp, section, actions, incl_unset):
         cp.set(section, var, str(action.default))
     if len(cp.items(section)) == 0:
         cp.remove_section(section)
+
+
+def with_validation(failure_msg):
+    """
+    Decorator generator which generates decorators that validates
+     the return code of the wrapped function. if 'fail_on_error' == True
+     and the return code is non-zero, raises RuntimeError with 'failure_msg'.
+
+    Args:
+        failure_msg(str): msg to print when func returns non zero code
+    Return:
+        object: if backing_chain == True then a list of dicts else a dict
+    """
+
+    def wrap(func):
+        @functools.wraps(func)
+        def wrapped(*args, **kwargs):
+            fail_on_error = kwargs.get('fail_on_error', None)
+            if fail_on_error is None:
+                fail_on_error = True
+            result = func(*args, **kwargs)
+            if result and fail_on_error:
+                raise RuntimeError(
+                    'msg: {}\nfunction: {}\nsubprocess msg: '
+                    '"{}"\nargs: {}\nkwargs: {}'.format(
+                        failure_msg, func.__name__, result.err, args, kwargs
+                    )
+                )
+            return result
+
+        return wrapped
+
+    return wrap
+
+
+def get_qemu_info(path, backing_chain=False, fail_on_error=True):
+    """
+    Get info on a given qemu disk
+
+    Args:
+        path(str): Path to the required disk
+        backing_chain(boo): if true, include also info about
+        the image predecessors.
+    Return:
+        object: if backing_chain == True then a list of dicts else a dict
+    """
+
+    cmd = ['qemu-img', 'info', '--output=json', path]
+
+    if backing_chain:
+        cmd.insert(-1, '--backing-chain')
+
+    result = run_command(cmd)
+    if result and fail_on_error:
+        raise RuntimeError(
+            'Failed to get info for {}\n{}'.format(path, result.err)
+        )
+
+    return json.loads(result.out)
+
+
+@with_validation('Failed to run qemu-img rebase')
+def qemu_rebase(target, backing_file, safe=True):
+    """
+    changes the backing file of 'source' to 'backing_file'
+
+    Args:
+        target(str): Path to the source disk
+        backing_file(str): path to the base disk
+        safe(bool): if false, allow unsafe rebase
+         (check qemu-img docs for more info)
+    """
+    with LogTask('Rebasing disk'):
+        cmd = ['qemu-img', 'rebase', '-b', backing_file, target]
+        if not safe:
+            cmd.insert(2, '-u')
+
+        result = run_command(cmd)
+
+    return result
+
+
+@with_validation('Failed to run compression')
+def compress(input_file, block_size):
+    with LogTask('Compressing {}'.format(input_file)):
+        cmd = [
+            'xz', '--compress', '--keep', '--threads=0', '--best', '--force',
+            '--verbose', '--block-size={}'.format(block_size), input_file
+        ]
+        result = run_command(cmd)
+
+    return result
+
+
+@with_validation('Failed to copy file')
+def cp(input_file, output_file):
+    if not os.path.basename(output_file):
+        output_file = os.path.join(output_file, os.path.basename(input_file))
+
+    cmd = ['cp', input_file, output_file]
+
+    result = run_command(cmd)
+
+    return result
+
+
+@with_validation('Failed to sparse image')
+def sparse(input_file, input_format):
+    cmd = [
+        'virt-sparsify',
+        '-q',
+        '-v',
+        '--format',
+        input_format,
+        '--in-place',
+        input_file,
+    ]
+    result = run_command(cmd)
+
+    return result
+
+
+def get_hash(file_path, checksum='sha1'):
+    """
+    Generate a hash for the given file
+
+    Args:
+        file_path (str): Path to the file to generate the hash for
+        checksum (str): hash to apply, one of the supported by hashlib, for
+            example sha1 or sha512
+
+    Returns:
+        str: hash for that file
+    """
+
+    sha = getattr(hashlib, checksum)()
+    with open(file_path) as file_descriptor:
+        while True:
+            chunk = file_descriptor.read(65536)
+            if not chunk:
+                break
+            sha.update(chunk)
+    return sha.hexdigest()

@@ -271,6 +271,39 @@ def do_stop(prefix, vm_names, **kwargs):
     prefix.stop(vm_names=vm_names)
 
 
+@lago.plugins.cli.cli_plugin(help='Export virtual entities')
+@lago.plugins.cli.cli_plugin_add_argument(
+    '--entities-names',
+    '-e',
+    help='Name of the entities to export. If no name is specified, export all'
+    'the entities in this prefix',
+    metavar='ENTITY_NAME',
+    nargs='*',
+)
+@lago.plugins.cli.cli_plugin_add_argument(
+    '--standalone',
+    '-s',
+    help='If not specified, export a layered image',
+    action='store_true'
+)
+@lago.plugins.cli.cli_plugin_add_argument(
+    '--compress',
+    '-c',
+    help='If specified, compress the exported images',
+    action='store_true'
+)
+@lago.plugins.cli.cli_plugin_add_argument(
+    '--dst-dir',
+    '-d',
+    default='.',
+    help='dir to place the exported images in',
+)
+@in_lago_prefix
+@with_logging
+def do_export(prefix, entities_names, standalone, dst_dir, compress, **kwargs):
+    prefix.export_entities(entities_names, standalone, dst_dir, compress)
+
+
 @lago.plugins.cli.cli_plugin(
     help='Create snapshots for all deployed resources'
 )

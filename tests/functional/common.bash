@@ -20,6 +20,20 @@ VERBS=(
 )
 FIXTURES="$BATS_TEST_DIRNAME/fixtures"
 
+common.is_stopped() {
+    local workdir="${1?}"
+    local status=$(
+      "$LAGOCLI" \
+          --out-format flat \
+          status
+    )
+    echo "$status" | grep -q "status: up"
+    if [[ $? -ne 0 ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
 
 common.is_initialized() {
     local workdir="${1?}"

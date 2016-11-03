@@ -25,7 +25,7 @@ import lxml
 import os
 import pwd
 
-from . import (log_utils, utils, sysprep, libvirt_utils)
+from . import (log_utils, utils, sysprep, libvirt_utils, export)
 from .config import config
 from .plugins import vm
 from .plugins.vm import ExtractPathError, ExtractPathNoPathError
@@ -234,6 +234,33 @@ class LocalLibvirtVMProvider(vm.VMProviderPlugin):
                 self.vm.name()
             )
             self._extract_paths_gfs(paths=paths, ignore_nopath=ignore_nopath)
+
+    def export_disks(self, standalone=True, dst_dir=None, compress=False):
+        """
+        Exports all the disks of self.
+        For each disk type, handler function should be added.
+
+        Args:
+            standalone (bool): if true, merge the base images and the layered
+             image into a new file (Supported only in qcow2 format)
+            dst_dir (str): dir to place the exported disks
+
+        """
+        if not os.path.isdir(dst_dir):
+            os.mkdir(dst_dir)
+
+        export_managers = [
+            export.DiskExportManager.get_instance_by_type(
+                dst=dst_dir,
+                disk=disk,
+                do_compress=compress,
+                standalone=standalone
+            ) for disk in self.vm.disks
+        ]
+
+        # TODO: make this step parallel
+        for manager in export_managers:
+            manager.export()
 
     @_check_defined
     def vnc_port(self):

@@ -24,6 +24,7 @@ import logging
 import os
 import uuid
 import time
+import sys
 import lxml.etree
 
 from . import (
@@ -165,6 +166,32 @@ class VirtEnv(object):
 
     def bootstrap(self):
         utils.invoke_in_parallel(lambda vm: vm.bootstrap(), self._vms.values())
+
+    def export_entities(self, entities_names, standalone, dst_dir, compress):
+        if not entities_names:
+            entities_names = self._vms.keys()
+
+        running_ents = []
+        entities = []
+        for name in entities_names:
+            try:
+                ent = self._vms[name]
+                entities.append(ent)
+                if ent.defined():
+                    running_ents.append(ent)
+            except KeyError:
+                LOGGER.error('Entity {} does not exist'.format(name))
+                sys.exit(1)
+
+        if running_ents:
+            for ent in running_ents:
+                LOGGER.error('{} must be off'.format(ent.name()))
+            sys.exit(1)
+        # TODO: run the export task in parallel
+
+        with LogTask('Exporting disks to: {}'.format(dst_dir)):
+            for ent in entities:
+                ent.export_disks(standalone, dst_dir, compress)
 
     def start(self, vm_names=None):
         if not vm_names:
